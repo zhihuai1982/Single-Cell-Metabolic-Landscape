@@ -13,10 +13,7 @@ gunzip GSE72056_melanoma_single_cell_revised_v2.txt.gz
 # SEPT15 should be SEP15
 
 
-command="sed"
-for (( i = 15; i > 0; i-- )); do
-	command="$command -e \"s/$i-Mar/MARCH$i/g\" -e \"s/$i-Sep/SEPT$i/g\" -e \"s/$i-Dec/DEC$i/g\" -e \"s/SEPT15/SEP15/g\""
-done
+command="sed -e \"s/$i-Mar/MARCH$i/g\" -e \"s/$i-Sep/SEPT$i/g\" -e \"s/$i-Dec/DEC$i/g\" -e \"s/SEPT15/SEP15/g\""
 
 eval "cat GSE72056_melanoma_single_cell_revised_v2.txt | $command > GSE72056_melanoma_single_cell_corrected.txt"
 rm GSE72056_melanoma_single_cell_revised_v2.txt

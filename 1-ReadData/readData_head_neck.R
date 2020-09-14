@@ -45,6 +45,9 @@ row_data[rownames(row_data) %in% metabolics, "metabolic"] <- TRUE
 # 3. build scater object
 all_data <- data.matrix(all_data)
 raw_tpm <- 2^all_data - 1
+all_data_num <- sapply(all_data,MARGIN = 2,as.numeric)
+all_data_matrix <- data.matrix(all_data_num)
+raw_tpm <- 2^all_data_matrix - 1
 sce <- SingleCellExperiment(
     assays = list(tpm = raw_tpm, exprs = all_data),
     colData = col_data,

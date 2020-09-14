@@ -3,7 +3,7 @@ library(scater)
 
 args <- commandArgs()
 tumor <- "head_neck"
-num_cores <- 4 # for windows it should be 1
+num_cores <- 16 # for windows it should be 1
 
 selected_sce <- readRDS(file.path("../1-ReadData/dataset/", tumor, "selected_sce.rds"))
 

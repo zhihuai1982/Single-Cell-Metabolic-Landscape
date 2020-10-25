@@ -1,41 +1,38 @@
 library(scater)
 library(stringr)
+options(stringsAsFactors = FALSE)
 library(pheatmap)
 library(gtools)
-library(scran)
+library(ggplot2)
 source("../utils.R")
-options(stringsAsFactors = FALSE)
 source("runGSEA_preRank.R")
 
-### update:: using scran to quantify the technical component of the variance
-
-
-
-tumor <- "melanoma"
+tumor <- "head_neck"
 outDir <- file.path("dataset", tumor)
 if (!dir.exists(outDir)) dir.create(outDir, recursive = TRUE)
 pathway_file <- "../Data/KEGG_metabolism.gmt"
 
-
 # 1. Loading the data
 selected_sce <- readRDS(file.path("../1-ReadData/dataset/", tumor, "selected_sce.rds"))
-selected_tumor_sce <- selected_sce[, selected_sce$cellType == "Malignant"]
-selected_tumor_metabolic_sce <- selected_tumor_sce[rowData(selected_tumor_sce)$metabolic, ]
+selected_nontumor_sce <- selected_sce[, selected_sce$cellType != "Malignant"]
+selected_nontumor_metabolic_sce <- selected_nontumor_sce[rowData(selected_nontumor_sce)$metabolic, ]
+exprs_data <- assay(selected_nontumor_metabolic_sce, "exprs")
 # =========================================================================
-tumors <- unique(selected_tumor_sce$tumor)
+celltypes <- unique(selected_nontumor_metabolic_sce$cellType)
 
 # 2.Tumor cells
 enrich_data_df <- data.frame(x = NULL, y = NULL, NES = NULL, PVAL = NULL)
-
 pc_plotdata <- data.frame(
     x = numeric(), y = numeric(),
-    sel = character(), tumor = character()
+    sel = character(), types = character()
 )
 
-for (t in tumors) {
-    each_metabolic_sce <- selected_tumor_metabolic_sce[, selected_tumor_metabolic_sce$tumor == t]
+for (t in celltypes) {
+    t2 <- str_replace(t, " ", "")
+    each_metabolic_sce <- selected_nontumor_metabolic_sce[, selected_nontumor_metabolic_sce$cellType == t]
     each_metabolic_tpm <- assay(each_metabolic_sce, "exprs")
     each_metabolic_tpm <- each_metabolic_tpm[rowSums(each_metabolic_tpm) > 0, ]
+
     x <- each_metabolic_tpm
     ntop <- nrow(x)
     rv <- rowVars(as.matrix(x))
@@ -43,33 +40,31 @@ for (t in tumors) {
     pca <- prcomp(t(x[select, ]))
     percentVar <- pca$sdev^2 / sum(pca$sdev^2)
 
-
     ### select PCs that explain at least 80% of the variance
     cum_var <- cumsum(percentVar)
     select_pcs <- which(cum_var > 0.8)[1]
-
     ### plot the PCA and explained variances
     tmp_plotdata <- data.frame(
-        x = seq_len(length(percentVar)),
-        y = percentVar,
+        x = 1:length(percentVar), y = percentVar,
         sel = c(rep("y", select_pcs), rep("n", length(percentVar) - select_pcs)),
-        tumor = rep(t, length(percentVar))
+        types = rep(t, length(percentVar))
     )
     pc_plotdata <- rbind(pc_plotdata, tmp_plotdata)
+    ###
 
-    ####
     pre_rank_matrix <- as.matrix(rowSums(abs(pca$rotation[, 1:select_pcs])))
+    runGSEA_preRank(pre_rank_matrix, pathway_file, t2)
 
-    runGSEA_preRank(pre_rank_matrix, pathway_file, t)
     # get the result
-    result_dir <- list.files(path = "preRankResults", pattern = paste0("^", t, ".GseaPreranked(.*)"), full.names = T)
+    result_dir <- list.files(path = "preRankResults", pattern = paste0("^", t2, ".GseaPreranked(.*)"), full.names = T)
     result_file <- list.files(path = result_dir, pattern = "gsea_report_for_na_pos_(.*).xls", full.names = T)
     gsea_result <- read.table(result_file, header = T, sep = "\t", row.names = 1)
     gsea_pathways <- str_to_title(rownames(gsea_result))
     gsea_pathways <- str_replace(gsea_pathways, "Tca", "TCA")
     gsea_pathways <- str_replace(gsea_pathways, "Gpi", "GPI")
-    enrich_data_df <- rbind(enrich_data_df, data.frame(x = t, y = gsea_pathways, NES = gsea_result$NES, PVAL = gsea_result$NOM.p.val))
+    enrich_data_df <- rbind(enrich_data_df, data.frame(x = t2, y = gsea_pathways, NES = gsea_result$NES, PVAL = gsea_result$NOM.p.val))
 }
+
 # remove pvalue <0.01 pathways
 min_pval <- by(enrich_data_df$PVAL, enrich_data_df$y, FUN = min)
 select_pathways <- names(min_pval)[(min_pval <= 0.01)]
@@ -83,13 +78,13 @@ select_enrich_data_df$PVAL <- -log10(pvals)
 pathway_pv_sum <- by(select_enrich_data_df$PVAL, select_enrich_data_df$y, FUN = sum)
 pathway_order <- names(pathway_pv_sum)[order(pathway_pv_sum, decreasing = T)]
 ########################### top 10
+## check before doing this
 pathway_order <- pathway_order[1:10]
 select_enrich_data_df <- select_enrich_data_df[select_enrich_data_df$y %in% pathway_order, ]
 ########################################
-select_enrich_data_df$x <- factor(select_enrich_data_df$x, levels = mixedsort(tumors))
 select_enrich_data_df$y <- factor(select_enrich_data_df$y, levels = pathway_order)
 
-## buble plot
+# #buble plot
 p <- ggplot(select_enrich_data_df, aes(x = x, y = y, size = PVAL, color = NES)) +
     geom_point(shape = 19) +
     # ggtitle("pathway heterogeneity") +
@@ -114,14 +109,13 @@ p <- ggplot(select_enrich_data_df, aes(x = x, y = y, size = PVAL, color = NES)) 
         axis.text.y = element_text(colour = "black", size = 6)
     ) +
     theme(plot.margin = unit(rep(1, 4), "lines"))
-ggsave(file.path(outDir, "malignant_enriched_pathway.pdf"), p, width = 3.8, height = 2.3, units = "in", device = "pdf", useDingbats = FALSE)
+ggsave(file.path(outDir, "non-malignant_enriched_pathway.pdf"), p, width = 3.6, height = 2.5, units = "in", device = "pdf", useDingbats = FALSE)
 
 ## plot variance
-pc_plotdata$tumor <- factor(pc_plotdata$tumor, levels = mixedsort(tumors))
 p <- ggplot(pc_plotdata) +
     geom_point(aes(x, y, colour = factor(sel)), size = 0.5) +
     scale_color_manual(values = c("gray", "#ff4000")) +
-    facet_wrap(~tumor, scales = "free", ncol = 4) +
+    facet_wrap(~ factor(types), scales = "free", ncol = 4) +
     theme_bw() +
     labs(x = "Principal components", y = "Explained variance (%)") +
     theme(
@@ -135,10 +129,9 @@ p <- ggplot(pc_plotdata) +
         strip.text = element_text(size = 6)
     )
 
-ggsave(file.path(outDir, "malignant_PC_variance_plot.pdf"), p, device = "pdf", useDingbats = FALSE)
+ggsave(file.path(outDir, "non-malignant_PC_variance_plot.pdf"), p, width = 7.5, height = 2.7, units = "in", device = "pdf", useDingbats = FALSE)
 unlink("preRankResults", recursive = T)
 unlink("prerank.rnk")
 date_string <- Sys.Date()
 date_split <- strsplit(as.character(date_string), "-")[[1]]
 unlink(paste0(tolower(month.abb[as.numeric(date_split[2])]), date_split[3]), recursive = T)
-

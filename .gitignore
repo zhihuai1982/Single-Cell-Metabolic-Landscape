@@ -16,5 +16,6 @@
 .DS_Store
 .Rhistory
 Data/TCGA/HNSC/exp.txt
+Data/TCGA/*
 Data/TCGA/HNSC/type.txt
 pipeline.ai
